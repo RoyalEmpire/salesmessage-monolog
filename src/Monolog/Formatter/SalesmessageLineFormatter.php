@@ -4,16 +4,12 @@ declare(strict_types=1);
 namespace Monolog\Formatter;
 
 use Monolog\Formatter\LineFormatter;
+use Monolog\Utils;
+use Throwable;
 
 class SalesmessageLineFormatter extends LineFormatter
 {
     public const SIMPLE_DATE = 'Y-m-d H:i:s';
-
-    public const ERROR_MAX_NORMALIZE_DEPTH = 2;
-
-    protected const LOG_LEVELS = [
-        'ERROR'
-    ];
 
     /**
      * Context fields to inline with message
@@ -38,10 +34,6 @@ class SalesmessageLineFormatter extends LineFormatter
      */
     public function format(array $record): string
     {
-        if (in_array($record['level_name'], self::LOG_LEVELS)) {
-            $this->setMaxNormalizeDepth(self::ERROR_MAX_NORMALIZE_DEPTH);
-        }
-
         // add backtrace info
         $record['message'] = $this->backtraceAwareMessage($record['message']);
 
@@ -201,5 +193,72 @@ class SalesmessageLineFormatter extends LineFormatter
         }
 
         return $this;
+    }
+
+    /**
+     * @param Throwable $e
+     * @param int $depth
+     * @return string
+     */
+    protected function normalizeException(Throwable $e, int $depth = 0): string
+    {
+        return $this->formatException($e);
+    }
+
+    /**
+     * @param Throwable $e
+     * @return string
+     */
+    private function formatException(Throwable $e): string
+    {
+        $str = '[object] (' . Utils::getClass($e) . '(code: ' . $e->getCode();
+        if ($e instanceof \SoapFault) {
+            if (isset($e->faultcode)) {
+                $str .= ' faultcode: ' . $e->faultcode;
+            }
+
+            if (isset($e->faultactor)) {
+                $str .= ' faultactor: ' . $e->faultactor;
+            }
+
+            if (isset($e->detail)) {
+                if (is_string($e->detail)) {
+                    $str .= ' detail: ' . $e->detail;
+                } elseif (is_object($e->detail) || is_array($e->detail)) {
+                    $str .= ' detail: ' . $this->toJson($e->detail, true);
+                }
+            }
+        }
+        $str .= '): ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . ')';
+
+        if ($this->includeStacktraces) {
+            $str .= $this->stacktracesParser($e);
+        }
+
+        return $str;
+    }
+
+    /**
+     * @param Throwable $e
+     * @return string
+     */
+    private function stacktracesParser(Throwable $e): string
+    {
+        $trace = $e->getTraceAsString();
+
+        if ($this->stacktracesParser) {
+            $trace = $this->stacktracesParserCustom($trace);
+        }
+
+        return "\n[stacktrace]\n" . $trace . "\n";
+    }
+
+    /**
+     * @param string $trace
+     * @return string
+     */
+    private function stacktracesParserCustom(string $trace): string
+    {
+        return implode("\n", array_filter(array_map($this->stacktracesParser, explode("\n", $trace))));
     }
 }
